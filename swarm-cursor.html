@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#101018" />
+  <title>Swarm Cursor — Demo</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #101018;
+      color: #f5f5f7;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { min-width: 320px; min-height: 100%; margin: 0; }
+
+    body {
+      min-height: 100vh;
+      overflow: hidden;
+      background:
+        radial-gradient(ellipse at 50% 42%, rgba(84, 61, 154, .22), transparent 48%),
+        radial-gradient(ellipse at 15% 90%, rgba(13, 153, 255, .1), transparent 38%),
+        #101018;
+      cursor: none;
+    }
+
+    #swarm {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    main {
+      position: relative;
+      z-index: 0;
+      display: grid;
+      min-height: 100vh;
+      place-content: center;
+      justify-items: center;
+      padding: 32px 22px;
+      text-align: center;
+    }
+
+    .eyebrow {
+      margin: 0 0 16px;
+      color: #aaa5bd;
+      font-size: .75rem;
+      font-weight: 700;
+      letter-spacing: .2em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      max-width: 760px;
+      margin: 0;
+      font-size: clamp(2.6rem, 8vw, 6.5rem);
+      line-height: .98;
+      letter-spacing: -.075em;
+    }
+
+    h1 span {
+      color: transparent;
+      background: linear-gradient(90deg, #ff7262, #ffc700 28%, #0d99ff 60%, #a259ff 82%, #0acf83);
+      background-clip: text;
+      -webkit-background-clip: text;
+    }
+
+    .description {
+      max-width: 510px;
+      margin: 24px 0 0;
+      color: #aaa8b5;
+      font-size: clamp(.95rem, 2vw, 1.1rem);
+      line-height: 1.7;
+    }
+
+    .hint {
+      position: fixed;
+      z-index: 2;
+      right: 20px;
+      bottom: 18px;
+      left: 20px;
+      color: #777484;
+      font-size: .78rem;
+      text-align: center;
+      pointer-events: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      body { cursor: auto; }
+      .hint::after { content: " (Animasi dapat dihentikan dengan tombol Escape.)"; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="swarm" aria-hidden="true"></canvas>
+  <main>
+    <p class="eyebrow">A tiny cursor playground</p>
+    <h1>One cursor.<br /><span>A whole swarm.</span></h1>
+    <p class="description">Gerakkan mouse dan lihat panah-panah warna-warni mengikuti, berkeliling, lalu menyebar dengan gerakan yang lembut.</p>
+  </main>
+  <p class="hint">Gerakkan mouse untuk memandu swarm · tekan Esc untuk jeda/lanjut</p>
+
+  <script>
+    (() => {
+      const canvas = document.querySelector("#swarm");
+      const ctx = canvas.getContext("2d");
+      const colors = ["#F24E1E", "#A259FF", "#1ABCFE", "#0ACF83", "#FF7262", "#FFC700", "#E8467C", "#0D99FF"];
+      const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+      const agents = [];
+      const pointer = { x: innerWidth / 2, y: innerHeight / 2, active: false };
+      let paused = false;
+      let width = 0;
+      let height = 0;
+      let dpr = 1;
+      let lastTime = 0;
+
+      function resize() {
+        dpr = Math.min(devicePixelRatio || 1, 2);
+        width = innerWidth;
+        height = innerHeight;
+        canvas.width = Math.round(width * dpr);
+        canvas.height = Math.round(height * dpr);
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+
+      function addAgent(index) {
+        const angle = Math.random() * Math.PI * 2;
+        const distance = 55 + Math.random() * 175;
+        agents.push({
+          x: pointer.x + Math.cos(angle) * distance,
+          y: pointer.y + Math.sin(angle) * distance,
+          vx: 0,
+          vy: 0,
+          color: colors[index % colors.length],
+          size: 12 + Math.random() * 5,
+          orbit: 35 + Math.random() * 115,
+          phase: Math.random() * Math.PI * 2,
+          spin: (Math.random() < .5 ? -1 : 1) * (.25 + Math.random() * .45),
+        });
+      }
+
+      function drawArrow(agent) {
+        const angle = Math.atan2(agent.vy, agent.vx) + Math.PI / 2;
+        const size = agent.size;
+        ctx.save();
+        ctx.translate(agent.x, agent.y);
+        ctx.rotate(angle);
+        ctx.shadowColor = agent.color;
+        ctx.shadowBlur = 12;
+        ctx.fillStyle = agent.color;
+        ctx.strokeStyle = "rgba(255,255,255,.92)";
+        ctx.lineWidth = 1.4;
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        ctx.moveTo(0, -size);
+        ctx.lineTo(size * .72, size * .82);
+        ctx.lineTo(size * .13, size * .58);
+        ctx.lineTo(0, size * 1.05);
+        ctx.lineTo(-size * .14, size * .58);
+        ctx.lineTo(-size * .72, size * .82);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function frame(now) {
+        if (paused) return;
+        const dt = Math.min((now - (lastTime || now)) / 1000, .035);
+        lastTime = now;
+        ctx.clearRect(0, 0, width, height);
+
+        const targetX = pointer.x;
+        const targetY = pointer.y;
+        const time = now / 1000;
+
+        for (let i = 0; i < agents.length; i++) {
+          const agent = agents[i];
+          const dx = agent.x - targetX;
+          const dy = agent.y - targetY;
+          const distance = Math.hypot(dx, dy) || 1;
+          const orbitAngle = Math.atan2(dy, dx) + agent.spin * dt;
+          agent.phase += dt * agent.spin;
+          const desiredRadius = agent.orbit + Math.sin(time * 1.4 + i) * 18;
+          const desiredX = targetX + Math.cos(orbitAngle + Math.sin(agent.phase) * .18) * desiredRadius;
+          const desiredY = targetY + Math.sin(orbitAngle + Math.sin(agent.phase) * .18) * desiredRadius;
+
+          // Pull gently toward an orbit around the pointer and repel nearby cursors.
+          let ax = (desiredX - agent.x) * 5.2;
+          let ay = (desiredY - agent.y) * 5.2;
+          for (let j = 0; j < agents.length; j++) {
+            if (i === j) continue;
+            const other = agents[j];
+            const sx = agent.x - other.x;
+            const sy = agent.y - other.y;
+            const separation = Math.hypot(sx, sy);
+            if (separation > 0 && separation < 34) {
+              const force = (34 - separation) / 34;
+              ax += (sx / separation) * force * 470;
+              ay += (sy / separation) * force * 470;
+            }
+          }
+
+          agent.vx = (agent.vx + ax * dt) * .91;
+          agent.vy = (agent.vy + ay * dt) * .91;
+          const speed = Math.hypot(agent.vx, agent.vy);
+          if (speed > 520) {
+            agent.vx = agent.vx / speed * 520;
+            agent.vy = agent.vy / speed * 520;
+          }
+          agent.x += agent.vx * dt;
+          agent.y += agent.vy * dt;
+
+          // Wrap at screen edges so the swarm doesn't disappear permanently.
+          const margin = 35;
+          if (agent.x < -margin) agent.x = width + margin;
+          if (agent.x > width + margin) agent.x = -margin;
+          if (agent.y < -margin) agent.y = height + margin;
+          if (agent.y > height + margin) agent.y = -margin;
+          drawArrow(agent);
+        }
+
+        // The lead cursor marks the actual pointer position.
+        if (pointer.active) {
+          ctx.save();
+          ctx.translate(pointer.x, pointer.y);
+          ctx.shadowColor = "#ffffff";
+          ctx.shadowBlur = 10;
+          ctx.fillStyle = "#fff";
+          ctx.strokeStyle = "#17151f";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(0, 23);
+          ctx.lineTo(6, 17);
+          ctx.lineTo(11, 28);
+          ctx.lineTo(15, 26);
+          ctx.lineTo(10, 15);
+          ctx.lineTo(19, 15);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        requestAnimationFrame(frame);
+      }
+
+      for (let i = 0; i < (reducedMotion.matches ? 8 : 24); i++) addAgent(i);
+      resize();
+      requestAnimationFrame(frame);
+
+      addEventListener("resize", resize);
+      addEventListener("pointermove", (event) => {
+        pointer.x = event.clientX;
+        pointer.y = event.clientY;
+        pointer.active = true;
+      }, { passive: true });
+      addEventListener("pointerdown", (event) => {
+        pointer.x = event.clientX;
+        pointer.y = event.clientY;
+        pointer.active = true;
+        // A click briefly sends the agents outward before they regroup.
+        for (const agent of agents) {
+          const dx = agent.x - pointer.x;
+          const dy = agent.y - pointer.y;
+          const distance = Math.hypot(dx, dy) || 1;
+          agent.vx += dx / distance * 190;
+          agent.vy += dy / distance * 190;
+        }
+      }, { passive: true });
+      addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          paused = !paused;
+          if (!paused) {
+            lastTime = 0;
+            requestAnimationFrame(frame);
+          }
+        }
+      });
+
+      reducedMotion.addEventListener?.("change", (event) => {
+        document.body.style.cursor = event.matches ? "auto" : "none";
+      });
+    })();
+  </script>
+</body>
+</html>
